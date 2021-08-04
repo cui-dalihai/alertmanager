@@ -30,12 +30,13 @@ import (
 const alertChannelLength = 200
 
 // Alerts gives access to a set of alerts. All methods are goroutine-safe.
+// alerts 管理结构, 就是架构图中的 AlertsProvider
 type Alerts struct {
 	cancel context.CancelFunc
 
 	mtx       sync.Mutex
-	alerts    *store.Alerts
-	listeners map[int]listeningAlerts
+	alerts    *store.Alerts	 			// 存储结构
+	listeners map[int]listeningAlerts	// 正在激活的alert
 	next      int
 
 	callback AlertStoreCallback
@@ -57,9 +58,10 @@ type AlertStoreCallback interface {
 	PostDelete(alert *types.Alert)
 }
 
+// 上面 AlertsProvider 中使用map来管理多个 listeningAlerts
 type listeningAlerts struct {
-	alerts chan *types.Alert
-	done   chan struct{}
+	alerts chan *types.Alert	// alert chan
+	done   chan struct{}		// 当前的 listeningAlerts 是否已经结束
 }
 
 // NewAlerts returns a new alert provider.
@@ -77,6 +79,8 @@ func NewAlerts(ctx context.Context, m types.Marker, intervalGC time.Duration, al
 		logger:    log.With(l, "component", "provider"),
 		callback:  alertCallback,
 	}
+
+	// 注册一个回调函数用来清理 AlertsProvider 中已经完成的listener
 	a.alerts.SetGCCallback(func(alerts []*types.Alert) {
 		for _, alert := range alerts {
 			// As we don't persist alerts, we no longer consider them after
@@ -126,14 +130,15 @@ func (a *Alerts) Subscribe() provider.AlertIterator {
 
 	var (
 		done   = make(chan struct{})
-		alerts = a.alerts.List()
-		ch     = make(chan *types.Alert, max(len(alerts), alertChannelLength))
+		alerts = a.alerts.List()												// 获取所有的alerts
+		ch     = make(chan *types.Alert, max(len(alerts), alertChannelLength))	// 创建一个 buffer chan, 保证容量要么盈余, 要么恰好
 	)
 
 	for _, a := range alerts {
 		ch <- a
 	}
 
+	// 为 AlertsProvider 新建一个 listener, 所以调用 Subscribe 会为当前所有的 alerts 创建一个 listener
 	a.listeners[a.next] = listeningAlerts{alerts: ch, done: done}
 	a.next++
 
@@ -169,18 +174,21 @@ func (a *Alerts) Get(fp model.Fingerprint) (*types.Alert, error) {
 }
 
 // Put adds the given alert to the set.
+// 是把新建的 alerts 存放到 AlertsProvider 中
 func (a *Alerts) Put(alerts ...*types.Alert) error {
 	for _, alert := range alerts {
-		fp := alert.Fingerprint()
+		fp := alert.Fingerprint()   // 制作唯一ID, 基于 alerts 的 LabelSets
 
 		existing := false
 
 		// Check that there's an alert existing within the store before
 		// trying to merge.
+		// 如果已经存在相同的alert, 就是labelSets相同
 		if old, err := a.alerts.Get(fp); err == nil {
 			existing = true
 
 			// Merge alerts if there is an overlap in activity range.
+			// 新旧告警区间有重叠的, 合并
 			if (alert.EndsAt.After(old.StartsAt) && alert.EndsAt.Before(old.EndsAt)) ||
 				(alert.StartsAt.After(old.StartsAt) && alert.StartsAt.Before(old.EndsAt)) {
 				alert = old.Merge(alert)
@@ -200,6 +208,10 @@ func (a *Alerts) Put(alerts ...*types.Alert) error {
 		a.callback.PostStore(alert, existing)
 
 		a.mtx.Lock()
+
+		// 尝试写入 AlertsProvider 中的 listeners
+		// 由于每个 Dispatcher Subscribe AlertProvider 的时候都会新建一个 listener
+		// 所以没次 put 一个 alert 时都要发给所有的 listener
 		for _, l := range a.listeners {
 			select {
 			case l.alerts <- alert:

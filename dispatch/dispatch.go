@@ -131,6 +131,7 @@ func NewDispatcher(
 }
 
 // Run starts dispatching alerts incoming via the updates channel.
+// 单独的 goroutine 循环
 func (d *Dispatcher) Run() {
 	d.done = make(chan struct{})
 
@@ -153,7 +154,7 @@ func (d *Dispatcher) run(it provider.AlertIterator) {
 
 	for {
 		select {
-		case alert, ok := <-it.Next():
+		case alert, ok := <-it.Next():		// Next() 方法返回一个 chan
 			if !ok {
 				// Iterator exhausted for some reason.
 				if err := it.Err(); err != nil {

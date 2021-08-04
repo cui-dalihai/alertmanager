@@ -451,6 +451,7 @@ func (api *API) insertAlerts(w http.ResponseWriter, r *http.Request, alerts ...*
 		}
 		validAlerts = append(validAlerts, a)
 	}
+	// 写入 alertsProvider
 	if err := api.alerts.Put(validAlerts...); err != nil {
 		api.respondError(w, apiError{
 			typ: errorInternal,

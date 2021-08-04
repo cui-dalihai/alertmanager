@@ -32,6 +32,7 @@ var (
 // their fingerprint. Resolved alerts are removed from the map based on
 // gcInterval. An optional callback can be set which receives a slice of all
 // resolved alerts that have been removed.
+// 这是 Alerts 管理中心, 在内存中使用map管理所有的alerts,
 type Alerts struct {
 	sync.Mutex
 	c  map[model.Fingerprint]*types.Alert
@@ -70,6 +71,7 @@ func (a *Alerts) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// 对内存的alerts存储做清理, 已经处理的就是结束时间在当前时间之前或者就是当前时间的
 func (a *Alerts) gc() {
 	a.Lock()
 	defer a.Unlock()
@@ -78,7 +80,7 @@ func (a *Alerts) gc() {
 	for fp, alert := range a.c {
 		if alert.Resolved() {
 			delete(a.c, fp)
-			resolved = append(resolved, alert)
+			resolved = append(resolved, alert)  // 收集这些已经处理的为了传给回调函数
 		}
 	}
 	a.cb(resolved)
