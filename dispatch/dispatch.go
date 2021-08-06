@@ -84,6 +84,7 @@ type Dispatcher struct {
 	timeout func(time.Duration) time.Duration
 
 	mtx                sync.RWMutex
+	// 每个 route 下使用fp维护route的分组
 	aggrGroupsPerRoute map[*Route]map[model.Fingerprint]*aggrGroup
 	aggrGroupsNum      int
 
@@ -154,7 +155,8 @@ func (d *Dispatcher) run(it provider.AlertIterator) {
 
 	for {
 		select {
-		case alert, ok := <-it.Next():		// Next() 方法返回一个 chan
+		// Next() 方法返回一个 chan, 通过监听 chan 来监听接口 POST alert
+		case alert, ok := <-it.Next():
 			if !ok {
 				// Iterator exhausted for some reason.
 				if err := it.Err(); err != nil {
@@ -305,7 +307,11 @@ type notifyFunc func(context.Context, ...*types.Alert) bool
 
 // processAlert determines in which aggregation group the alert falls
 // and inserts it.
+// 使用 alert 匹配上的每个 route 来处理 alert
+// 实际上仅仅是把 alert 分配到对应的分组就好了
 func (d *Dispatcher) processAlert(alert *types.Alert, route *Route) {
+
+	// 所有用于分组的标签, kv 结构
 	groupLabels := getGroupLabels(alert, route)
 
 	fp := groupLabels.Fingerprint()
@@ -342,6 +348,7 @@ func (d *Dispatcher) processAlert(alert *types.Alert, route *Route) {
 	// alert is already there.
 	ag.insert(alert)
 
+	// 为每个新建的分组创建一个 groutine
 	go ag.run(func(ctx context.Context, alerts ...*types.Alert) bool {
 		_, _, err := d.stage.Exec(ctx, d.logger, alerts...)
 		if err != nil {
@@ -379,9 +386,16 @@ type aggrGroup struct {
 	routeKey string
 
 	alerts  *store.Alerts
+
+	// 为每个 aggrGroup 创建一个单独的 groutine, 那么这个 groutine 如何关闭?
+	// 这里把使用 select 监听 done, aggrGroup 调用cancel 即可
 	ctx     context.Context
 	cancel  func()
 	done    chan struct{}
+
+	// 这个 timer 使用的周期就是 group_wait, 在 newAggrGroup() 中能看到
+	// 一个分组的首次告警等待时间
+	// 在这个组首次 flush 之后，会被置为 GroupInterval 即一个更长的等待周期
 	next    *time.Timer
 	timeout func(time.Duration) time.Duration
 
@@ -425,12 +439,18 @@ func (ag *aggrGroup) String() string {
 	return ag.GroupKey()
 }
 
+// 每个分组对应一个 goroutine
 func (ag *aggrGroup) run(nf notifyFunc) {
 	defer close(ag.done)
+
+	// 使用 defer 清理关联的资源
 	defer ag.next.Stop()
 
 	for {
 		select {
+
+		// 这个 timer 使用的周期就是 group_wait, 在 newAggrGroup() 中能看到
+		// 一个分组的首次告警等待时间
 		case now := <-ag.next.C:
 			// Give the notifications time until the next flush to
 			// finish before terminating them.
@@ -484,6 +504,8 @@ func (ag *aggrGroup) insert(alert *types.Alert) {
 	// alert is already over.
 	ag.mtx.Lock()
 	defer ag.mtx.Unlock()
+
+	//
 	if !ag.hasFlushed && alert.StartsAt.Add(ag.opts.GroupWait).Before(time.Now()) {
 		ag.next.Reset(0)
 	}

@@ -46,6 +46,7 @@ type Route struct {
 
 	// Matchers an alert has to fulfill to match
 	// this route.
+	// alert 就是由 alert.LabelSet 和 Route.Matchers 两个是否匹配来决定是否使用这个 Route 来处理
 	Matchers labels.Matchers
 
 	// If true, an alert matches further routes on the same level.
@@ -142,7 +143,29 @@ func NewRoutes(croutes []*config.Route, parent *Route) []*Route {
 
 // Match does a depth-first left-to-right search through the route tree
 // and returns the matching routing nodes.
+// 递归, 深度优先遍历
+// 解析 alert 的 LabelSet(map 结构), 找出跟 LabelSet 匹配的所有 Route
+
+// Match
+// route:
+//		receiver: 'default-receiver'
+//		group_wait: 30s
+//		group_interval: 5m
+//		repeat_interval: 4h
+//		group_by: [cluster, alertname]
+//		routes:
+//		- receiver: 'database-pager'
+//			group_wait: 10s
+//			matchers:
+//			- service=~"mysql|cassandra"  		标签满足 service=mysql 或者 service=cassandra 发给 database-pager
+//		- receiver: 'frontend-pager'
+//			group_by: [product, environment]
+//			matchers:
+//			- team="frontend"					标签满足 team="frontend" 的告警发给 frontend-pager, 并且按照 product 和 environment 分组
+
 func (r *Route) Match(lset model.LabelSet) []*Route {
+
+	// 当前节点匹配
 	if !r.Matchers.Matches(lset) {
 		return nil
 	}
@@ -154,12 +177,14 @@ func (r *Route) Match(lset model.LabelSet) []*Route {
 
 		all = append(all, matches...)
 
+		// 如果已经匹配到同级的一个, 且 Continue=false 就结束当前层的匹配
 		if matches != nil && !cr.Continue {
 			break
 		}
 	}
 
 	// If no child nodes were matches, the current node itself is a match.
+	// 如果当前 route 的子 route.Routes 为空或者 route.Routes 中没有匹配 lset 时, 那么当前 route 就是匹配的
 	if len(all) == 0 {
 		all = append(all, r)
 	}

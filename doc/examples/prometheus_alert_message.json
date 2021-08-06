@@ -1,0 +1,39 @@
+{
+	"receiver":"webhook_alert",
+	"status":"firing",
+	"alerts":[{
+		"status":"firing",
+		"labels":{
+			"DEVDB":"","alertname":"NodeMemoryUsage-low",
+			"beta_kubernetes_io_arch":"amd64",
+			"beta_kubernetes_io_os":"linux",
+			"instance":"hv001238",
+			"job":"kubernetes-node-exporter",
+			"kubernetes_io_hostname":"hv001238",
+			"node_role_kubernetes_io_master":"",
+			"severity":"info",
+			"team":"node"
+		},
+		"annotations":{
+			"description":"hv001238: Memory usage is above 80% (current value is: 52.18385396227273",
+			"summary":"hv001238: High Memory usage detected"
+		},
+		"startsAt":"2018-06-23T03:47:10.408935848Z",
+		"endsAt":"0001-01-01T00:00:00Z",
+		"generatorURL":"http://prometheus-785fc5bbf4-ztlrd:9090/graph?g0.expr=%28node_memory_MemTotal_bytes+-+%28node_memory_MemFree_bytes+%2B+node_memory_Buffers_bytes+%2B+node_memory_Cached_bytes%29%29+%2F+node_memory_MemTotal_bytes+%2A+100+%3E+1\\u0026g0.tab=1"
+	}],
+
+	"groupLabels":{"alertname":"NodeMemoryUsage-low"},
+	"commonLabels":{
+		"DEVDB":"",
+		"alertname":"NodeMemoryUsage-low",
+		"beta_kubernetes_io_arch":"amd64",
+		"beta_kubernetes_io_os":"linux",
+		"job":"kubernetes-node-exporter",
+		"node_role_kubernetes_io_master":"",
+		"severity":"info","team":"node"},
+		"commonAnnotations":{},
+		"externalURL":"http://alertmanager-7cffc68878-xb2m6:9093",
+		"version":"4",
+		"groupKey":"{}/{severity=\\`info\\"}:{alertname=\\"NodeMemoryUsage-low\\"}"
+}
