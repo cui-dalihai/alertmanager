@@ -124,6 +124,12 @@ func max(a, b int) int {
 // Subscribe returns an iterator over active alerts that have not been
 // resolved and successfully notified about.
 // They are not guaranteed to be in chronological order.
+// 这个 Subscribe 方法是 Dispatcher 用来订阅 AlertProvider
+// 先把当前 AlertProvider 中所有的 Alerts 放在一个 Buffered chan 中, 然后再把这个 Buffered chan 放到 AlertProvider 的 listeners 中
+// 然后再把这个 Buffered chan 包装成 NewAlertIterator 返回, Dispatcher 会通过 NewAlertIterator 的 Next 方法获取这个 Buffered chan
+// 并使用 for...select 来监听这个chan, 而 AlertProvider 每次收到一个 Alert, 即调用 Put 方法, 就会遍历自己的 listeners , 把新的 Alert
+// 发送给每一个 listener 的 Buffered chan.
+// 这样就实现了 Dispatcher 订阅 AlertProvider, AlertProvider 收到新的 Alert 通知所有订阅者的结构
 func (a *Alerts) Subscribe() provider.AlertIterator {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
@@ -211,7 +217,8 @@ func (a *Alerts) Put(alerts ...*types.Alert) error {
 
 		// 尝试写入 AlertsProvider 中的 listeners
 		// 由于每个 Dispatcher Subscribe AlertProvider 的时候都会新建一个 listener
-		// 所以没次 put 一个 alert 时都要发给所有的 listener
+		// 所以每次 put 一个 alert 时都要发给所有的 listener
+		// 而每个 Dispatcher
 		for _, l := range a.listeners {
 			select {
 			case l.alerts <- alert:

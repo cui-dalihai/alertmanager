@@ -213,15 +213,20 @@ func MuteTimeIntervalNames(ctx context.Context) ([]string, bool) {
 	return v, ok
 }
 
-// A Stage processes alerts under the constraints of the given context.
+
+// 源码里有很多地方使用了这种设计
+// 先定义一个 interface, 可能只有一个方法
+// 再定义一个 func 类型,
+// 再给这个 func 类型定一个满足接口的方法, 由于对这个 func 的调用和对其满足的方法的调用是不相关的两件事, 而 func 类型的这个接口方法中
+// 我们直接调用了这个 func, 并把接口方法接收的参数直接传给这个函数
+// 最终实现的结果就是: 这个 func 类型的函数对象满足我们定义的这个接口, 调用这个函数对象的接口的方法时就是调用了这个函数本身
+// 当然, 更常见的是我们可以定义一个结构体, 再为这个结构体定义一个满足接口的方法
 type Stage interface {
 	Exec(ctx context.Context, l log.Logger, alerts ...*types.Alert) (context.Context, []*types.Alert, error)
 }
 
-// StageFunc wraps a function to represent a Stage.
 type StageFunc func(ctx context.Context, l log.Logger, alerts ...*types.Alert) (context.Context, []*types.Alert, error)
 
-// Exec implements Stage interface.
 func (f StageFunc) Exec(ctx context.Context, l log.Logger, alerts ...*types.Alert) (context.Context, []*types.Alert, error) {
 	return f(ctx, l, alerts...)
 }
@@ -355,6 +360,7 @@ func createReceiverStage(
 
 // RoutingStage executes the inner stages based on the receiver specified in
 // the context.
+// 路由 Stage, 基于 context 中的 receiver 来找下一个 Stage
 type RoutingStage map[string]Stage
 
 // Exec implements the Stage interface.
@@ -376,6 +382,7 @@ func (rs RoutingStage) Exec(ctx context.Context, l log.Logger, alerts ...*types.
 type MultiStage []Stage
 
 // Exec implements the Stage interface.
+// 多个 Stage 的顺序 Exec
 func (ms MultiStage) Exec(ctx context.Context, l log.Logger, alerts ...*types.Alert) (context.Context, []*types.Alert, error) {
 	var err error
 	for _, s := range ms {
@@ -476,6 +483,7 @@ func NewWaitStage(wait func() time.Duration) *WaitStage {
 }
 
 // Exec implements the Stage interface.
+// 等待阶段, 要么等待到期, 要么其他地方 context 结束
 func (ws *WaitStage) Exec(ctx context.Context, _ log.Logger, alerts ...*types.Alert) (context.Context, []*types.Alert, error) {
 	select {
 	case <-time.After(ws.wait()):
@@ -487,6 +495,7 @@ func (ws *WaitStage) Exec(ctx context.Context, _ log.Logger, alerts ...*types.Al
 
 // DedupStage filters alerts.
 // Filtering happens based on a notification log.
+// 去重阶段, 使用 Alerts.Labels 的 value 来哈希去重
 type DedupStage struct {
 	rs    ResolvedSender
 	nflog NotificationLog
@@ -511,6 +520,7 @@ func utcNow() time.Time {
 	return time.Now().UTC()
 }
 
+// 直接数组的一个缓冲池
 var hashBuffers = sync.Pool{}
 
 func getHashBuffer() []byte {
@@ -522,7 +532,7 @@ func getHashBuffer() []byte {
 }
 
 func putHashBuffer(b []byte) {
-	b = b[:0]
+	b = b[:0]	// 重置游标, 最好判断一下容量, 如果容量太大, 不应该池化
 	//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
 	hashBuffers.Put(b)
 }
@@ -538,7 +548,7 @@ func hashAlert(a *types.Alert) uint64 {
 	for ln := range a.Labels {
 		names = append(names, ln)
 	}
-	sort.Sort(names)
+	sort.Sort(names)  // 要排序, 否则两个标签 a,b 和 b,a 哈希不同, 不会被去重
 
 	for _, ln := range names {
 		b = append(b, string(ln)...)

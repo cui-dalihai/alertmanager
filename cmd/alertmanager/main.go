@@ -447,6 +447,7 @@ func run() int {
 			pipelinePeer = peer
 		}
 
+		// 消息处理的流水线构建
 		pipeline := pipelineBuilder.New(
 			receivers,
 			waitFunc,

@@ -51,6 +51,7 @@ type AlertStatus struct {
 
 // Marker helps to mark alerts as silenced and/or inhibited.
 // All methods are goroutine-safe.
+// goroutine-safe 标记 alert 的 静默 且 抑制, 静默 或 抑制
 type Marker interface {
 	// SetSilenced replaces the previous SilencedBy by the provided IDs of
 	// active and pending silences, including the version number of the
@@ -379,6 +380,8 @@ type Muter interface {
 }
 
 // A MuteFunc is a function that implements the Muter interface.
+// 定义了一个函数类型, 这个函数类型是满足 Muter 接口的, 当对这个函数类型的对象调用接口函数 Mutes 时
+// 实际上就是把接口函数 Mutes 接收的参数传给这个函数对象
 type MuteFunc func(model.LabelSet) bool
 
 // Mutes implements the Muter interface.

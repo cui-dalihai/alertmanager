@@ -348,8 +348,11 @@ func (d *Dispatcher) processAlert(alert *types.Alert, route *Route) {
 	// alert is already there.
 	ag.insert(alert)
 
-	// 为每个新建的分组创建一个 groutine
+	// 为每个新建的分组创建一个 groutine, 这个 goroutine 接收一个函数,
+	// 这个函数会使用 Dispatcher 的 stage 来处理 alert
 	go ag.run(func(ctx context.Context, alerts ...*types.Alert) bool {
+
+		// 每个 stage 都有自己的 Exec() 函数, 就是当前 stage 处理 alert 的逻辑
 		_, _, err := d.stage.Exec(ctx, d.logger, alerts...)
 		if err != nil {
 			lvl := level.Error(d.logger)
