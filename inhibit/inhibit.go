@@ -57,6 +57,8 @@ func NewInhibitor(ap provider.Alerts, rs []*config.InhibitRule, mk types.Marker,
 	return ih
 }
 
+// Inhibitor和Dispatcher一样也会 Subscribe AlertProvider
+//
 func (ih *Inhibitor) run(ctx context.Context) {
 	it := ih.alerts.Subscribe()
 	defer it.Close()
@@ -71,6 +73,8 @@ func (ih *Inhibitor) run(ctx context.Context) {
 				continue
 			}
 			// Update the inhibition rules' cache.
+			// 对于一个新的 alert, 如果发现满足 inhibit rule 的 source 侧, 那么
+			// 就缓存这个 alert, 因为它可能够抑制其他 alert
 			for _, r := range ih.rules {
 				if r.SourceMatchers.Matches(a.Labels) {
 					if err := r.scache.Set(a); err != nil {
@@ -128,13 +132,18 @@ func (ih *Inhibitor) Stop() {
 func (ih *Inhibitor) Mutes(lset model.LabelSet) bool {
 	fp := lset.Fingerprint()
 
+	// 检查内存中所有 rule 是否匹配 lset
 	for _, r := range ih.rules {
+
+		// target 不匹配就没必要计算了, 因为我们就是为了抑制 target
 		if !r.TargetMatchers.Matches(lset) {
 			// If target side of rule doesn't match, we don't need to look any further.
 			continue
 		}
 		// If we are here, the target side matches. If the source side matches, too, we
 		// need to exclude inhibiting alerts for which the same is true.
+		// target 匹配就检查 source, 如果 source 也匹配, 那么就需要排除两端都匹配的情况
+		//
 		if inhibitedByFP, eq := r.hasEqual(lset, r.SourceMatchers.Matches(lset)); eq {
 			ih.marker.SetInhibited(fp, inhibitedByFP.String())
 			return true
@@ -162,6 +171,8 @@ type InhibitRule struct {
 	Equal map[model.LabelName]struct{}
 
 	// Cache of alerts matching source labels.
+	// 内存缓存了所有匹配 source 的告警
+	// 方便后面使用这些告警来抑制出现的 target
 	scache *store.Alerts
 }
 
@@ -230,6 +241,12 @@ func NewInhibitRule(cr *config.InhibitRule) *InhibitRule {
 // labels for the given label set. If so, the fingerprint of one of those alerts
 // is returned. If excludeTwoSidedMatch is true, alerts that match both the
 // source and the target side of the rule are disregarded.
+
+// 调用这个函数之前, 被检查 alert 已经满足了规则的 target,
+// 而规则中 scache 的 alert 已经满足了规则的 source
+// 剩下要确认的是:
+// 		scache 中的 alert 有没有标签和被检查 alert 标签一致的,
+//		再避免 alert 自我抑制的场景就可以了
 func (r *InhibitRule) hasEqual(lset model.LabelSet, excludeTwoSidedMatch bool) (model.Fingerprint, bool) {
 Outer:
 	for _, a := range r.scache.List() {
@@ -237,11 +254,18 @@ Outer:
 		if a.Resolved() {
 			continue
 		}
+
+		// 检查规则标签
 		for n := range r.Equal {
 			if a.Labels[n] != lset[n] {
 				continue Outer
 			}
 		}
+		// a 在加入 r.scache 的时候已经满足了 r.Source, 如果再通过 target 检查, 那么 scache 中的这个 a 同时满足 source 和 target
+		// 而 excludeTwoSidedMatch 如果为 true, 表示当前 dispatcher 处理的 alert 在 source 和 target 都满足
+		// 所以这个条件变成了: 如果 a 和被检查的 alert 同时满足 source 和 target, 而且被检查的标签还满足规则生效的条件
+		// 就忽略 a 对被检查 alert 的抑制,
+		// 这里防止了一个告警自己抑制自己情况
 		if excludeTwoSidedMatch && r.TargetMatchers.Matches(a.Labels) {
 			continue Outer
 		}

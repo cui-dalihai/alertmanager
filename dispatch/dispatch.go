@@ -353,6 +353,7 @@ func (d *Dispatcher) processAlert(alert *types.Alert, route *Route) {
 	go ag.run(func(ctx context.Context, alerts ...*types.Alert) bool {
 
 		// 每个 stage 都有自己的 Exec() 函数, 就是当前 stage 处理 alert 的逻辑
+
 		_, _, err := d.stage.Exec(ctx, d.logger, alerts...)
 		if err != nil {
 			lvl := level.Error(d.logger)
@@ -425,6 +426,7 @@ func newAggrGroup(ctx context.Context, labels model.LabelSet, r *Route, to func(
 
 	// Set an initial one-time wait before flushing
 	// the first batch of notifications.
+	// 首次等待时间是一次性的
 	ag.next = time.NewTimer(ag.opts.GroupWait)
 
 	return ag
@@ -532,6 +534,8 @@ func (ag *aggrGroup) flush(notify func(...*types.Alert) bool) {
 	for _, alert := range alerts {
 		a := *alert
 		// Ensure that alerts don't resolve as time move forwards.
+		// 没解决: 解决时间在当前之后, 就把结束时间置零
+		// 已解决: 解决时间在当前时间之前, 就使用传入的解决时间
 		if !a.ResolvedAt(now) {
 			a.EndsAt = time.Time{}
 		}
@@ -541,6 +545,7 @@ func (ag *aggrGroup) flush(notify func(...*types.Alert) bool) {
 
 	level.Debug(ag.logger).Log("msg", "flushing", "alerts", fmt.Sprintf("%v", alertsSlice))
 
+	// 这个 notify 就是消息处理流水线入口
 	if notify(alertsSlice...) {
 		for _, a := range alertsSlice {
 			// Only delete if the fingerprint has not been inserted

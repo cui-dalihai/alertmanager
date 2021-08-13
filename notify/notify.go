@@ -458,6 +458,8 @@ func NewMuteStage(m types.Muter) *MuteStage {
 // Exec implements the Stage interface.
 func (n *MuteStage) Exec(ctx context.Context, _ log.Logger, alerts ...*types.Alert) (context.Context, []*types.Alert, error) {
 	var filtered []*types.Alert
+	// 检查每个 alert
+	// 如果 alert 的 Labels 不匹配 inhibit rule 就保留下来, 传给下一个 stage
 	for _, a := range alerts {
 		// TODO(fabxc): increment total alerts counter.
 		// Do not send the alert if muted.
