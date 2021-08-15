@@ -14,14 +14,15 @@ route:
   # 根route没有配置任何 matcher, 所以匹配所有 alert, 并使用 cluster 和 alertname 对告警进行聚合
   group_by: ['alertname', 'cluster', 'service']
 
-  # 对于满足分组的告警, 该组首次告警时会等待一段时间, 这样可以聚合同组这段时间内的告警
+  # 对于满足分组的告警, 新建分组后的首次告警时会等待一段时间, 这样可以聚合同组这段时间内的告警
   group_wait: 2s
 
   # 对于满足分组的告警, 如果当前组已经发送过首次告警, 那么这个组新来一个告警, 会等待group_interval来发告警
+  # 同时会把已经告警成功, 需要重复告警的也同时告警出来
   group_interval: 5s
 
   # 已经成功告警过的, 重复告警的时间间隔
-  repeat_interval: 10h
+  repeat_interval: 100h
 
   receiver: default
 
@@ -31,11 +32,11 @@ route:
   - matchers:
     - service=~"foo1|foo2|baz"
     receiver: dep-sys
-
-    routes:
-    - matchers:
-      - severity="critical"
-      receiver: sys
+#
+#    routes:
+#    - matchers:
+#      - severity="critical"
+#      receiver: sys
 
 #  - matchers:
 #    - service="files"
@@ -59,13 +60,22 @@ route:
       - owner="team-Y"
       receiver: team-Y-pager
 
+#inhibit_rules:
+#  # 使用 source 来 mute target, 避免极端情况, source 和 target 最好选择永远不可能在同一条 alert 中能同时满足的
+#  # 如果两侧都能匹配, 这不能被另一个两侧都匹配的 alert 抑制
+#- source_matchers: [ severity="critical" ]
+#  target_matchers: [ severity="warning" ]
+#  # 两者的所有labels的value相同, 或者两者都没有, 或者两者都为空值, 抑制生效
+#  equal: [ cluster ]
+
 inhibit_rules:
-  # 使用 source 来 mute target, 避免极端情况, source 和 target 最好选择永远不可能在同一条 alert 中能同时满足的
-  # 如果两侧都能匹配, 这不能被另一个两侧都匹配的 alert 抑制
-- source_matchers: [ severity="critical" ]
-  target_matchers: [ severity="warning" ]
-  # 两者的所有labels的value相同, 或者两者都没有, 或者两者都为空值, 抑制生效
-  equal: [ cluster ]
+- source_matchers: [ alertname="NodeDown", type="base"]
+  target_matchers: [ severity="critical" ]
+  equal: [ node ]
+
+- source_matchers: [ alertname="ServiceDown", service="baz"]
+  target_matchers: [ service=~"foo1|foo2" ]
+  equal: [ alertname ]
 
 
 receivers:

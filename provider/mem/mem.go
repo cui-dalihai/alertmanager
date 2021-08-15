@@ -60,8 +60,8 @@ type AlertStoreCallback interface {
 
 // 上面 AlertsProvider 中使用map来管理多个 listeningAlerts
 type listeningAlerts struct {
-	alerts chan *types.Alert	// alert chan
-	done   chan struct{}		// 当前的 listeningAlerts 是否已经结束
+	alerts chan *types.Alert // alert chan
+	done   chan struct{}     // 当前的 listeningAlerts 是否已经结束
 }
 
 // NewAlerts returns a new alert provider.
@@ -136,8 +136,8 @@ func (a *Alerts) Subscribe() provider.AlertIterator {
 
 	var (
 		done   = make(chan struct{})
-		alerts = a.alerts.List()												// 获取所有的alerts
-		ch     = make(chan *types.Alert, max(len(alerts), alertChannelLength))	// 创建一个 buffer chan, 保证容量要么盈余, 要么恰好
+		alerts = a.alerts.List()                                               // 获取所有的alerts
+		ch     = make(chan *types.Alert, max(len(alerts), alertChannelLength)) // 创建一个 buffer chan, 保证容量要么盈余, 要么恰好
 	)
 
 	for _, a := range alerts {
@@ -183,7 +183,7 @@ func (a *Alerts) Get(fp model.Fingerprint) (*types.Alert, error) {
 // 是把新建的 alerts 存放到 AlertsProvider 中
 func (a *Alerts) Put(alerts ...*types.Alert) error {
 	for _, alert := range alerts {
-		fp := alert.Fingerprint()   // 制作唯一ID, 基于 alerts 的 LabelSets
+		fp := alert.Fingerprint() // 制作唯一ID, 基于 alerts 的 LabelSets
 
 		existing := false
 

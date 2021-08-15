@@ -201,6 +201,8 @@ func (api *API) Update(cfg *config.Config, setAlertStatus func(model.LabelSet)) 
 	api.v2.Update(cfg, setAlertStatus)
 }
 
+// 限速设计, 使用一个 buffered chan, 每个请求尝试占用一个, 请求结束后, 使用 defer 释放
+// 如果占用阻塞表示请求达到上限, 响应 503
 func (api *API) limitHandler(h http.Handler) http.Handler {
 	concLimiter := http.HandlerFunc(func(rsp http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodGet { // Only limit concurrency of GETs.

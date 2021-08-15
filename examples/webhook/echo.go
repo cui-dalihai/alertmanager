@@ -22,10 +22,12 @@ import (
 
 type InPutAlert struct {
 	Fingerprint string `json:"fingerprint"`
+	Labels map[string]string `json:"labels"`
 }
 
 type Resp struct {
 	Alert []InPutAlert `json:"alerts"`
+	Receiver string `json:"receiver"`
 }
 
 func main() {
@@ -42,7 +44,7 @@ func main() {
 		}
 		defer r.Body.Close()
 		for _, v := range ir.Alert {
-			log.Println(v.Fingerprint)
+			log.Println(v.Fingerprint, " receiver:", ir.Receiver, " ", v.Labels["alertname"])
 		}
 	})))
 }

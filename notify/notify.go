@@ -802,7 +802,10 @@ func NewTimeMuteStage(mt map[string][]timeinterval.TimeInterval) *TimeMuteStage 
 
 // Exec implements the stage interface for TimeMuteStage.
 // TimeMuteStage is responsible for muting alerts whose route is not in an active time.
+// 如果静默区间包含当前时间, 就返回空, 后面的 pipeline 也就收不到 alert
 func (tms TimeMuteStage) Exec(ctx context.Context, l log.Logger, alerts ...*types.Alert) (context.Context, []*types.Alert, error) {
+
+	// MuteTimeInterval 也是在 dispatcher 时写入 ctx 的
 	muteTimeIntervalNames, ok := MuteTimeIntervalNames(ctx)
 	if !ok {
 		return ctx, alerts, nil

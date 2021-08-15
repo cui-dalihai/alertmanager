@@ -80,7 +80,7 @@ func (a *Alerts) gc() {
 	for fp, alert := range a.c {
 		if alert.Resolved() {
 			delete(a.c, fp)
-			resolved = append(resolved, alert)  // 收集这些已经处理的为了传给回调函数
+			resolved = append(resolved, alert) // 收集这些已经处理的为了传给回调函数
 		}
 	}
 	a.cb(resolved)
