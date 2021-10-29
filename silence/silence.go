@@ -102,6 +102,9 @@ type Silencer struct {
 }
 
 // NewSilencer returns a new Silencer.
+// Silencer 和 Silences 共用所有静默规则,
+// Silences 对象会在接口增删改的时候维护,
+// Silencer 会在 pipeline 的 MuteStage(Silencer) 中通过调用 Mutes 方法来使用这些规则
 func NewSilencer(s *Silences, m types.Marker, l log.Logger) *Silencer {
 	return &Silencer{
 		silences: s,
@@ -120,6 +123,8 @@ func (s *Silencer) Mutes(lset model.LabelSet) bool {
 		allSils    []*pb.Silence
 		newVersion = markerVersion
 	)
+
+	// version 相同表示 fp 标记时的 silences 到现在没有新的静默规则加入
 	if markerVersion == s.silences.Version() {
 		totalSilences := len(activeIDs) + len(pendingIDs)
 		// No new silences added, just need to check which of the old
@@ -162,6 +167,9 @@ func (s *Silencer) Mutes(lset model.LabelSet) bool {
 	// current ID slices for concurrency reasons.
 	activeIDs, pendingIDs = nil, nil
 	now := s.silences.now()
+
+	// 这里仅仅根据搜索结果的数量就判断状态, 并没有计算 silence 的时间区间和当前时间是否重合,
+	// silence 有效的计算是在 Maintenance 过程中使用 GC 来维护的
 	for _, sil := range allSils {
 		switch getState(sil, now) {
 		case types.SilenceStatePending:
@@ -182,6 +190,8 @@ func (s *Silencer) Mutes(lset model.LabelSet) bool {
 	sort.Strings(activeIDs)
 	sort.Strings(pendingIDs)
 
+	// activeIDs 为空且没有 inhibitBy 的话, fp 仍然会是 active 的
+	// pendingIDs 不会对 fp 的状态有影响
 	s.marker.SetSilenced(fp, newVersion, activeIDs, pendingIDs)
 
 	return len(activeIDs) > 0
@@ -195,9 +205,15 @@ type Silences struct {
 	retention time.Duration
 
 	mtx       sync.RWMutex
+
+	// 存储 silenceId: meshSilence 映射
+	// 其中 meshSilence 除了有一个 Silence 还有这个 silence 的过期时间, 这样 Silences 的 GC 就是遍历 state 检查过期时间来管理
 	st        state
 	version   int // Increments whenever silences are added.
 	broadcast func([]byte)
+
+	// 存储了从 silence 到 silence.Matchers 的映射, 看起来仅仅是使用 labelSet 搜索 Silences 的时候用到了这个结构
+	// 还有垃圾清理的时候
 	mc        matcherCache
 }
 
@@ -401,6 +417,8 @@ Loop:
 
 // GC runs a garbage collection that removes silences that have ended longer
 // than the configured retention time ago.
+// 检查 silences 中所有的 silence, 如果 silence 的 ExpiresAt 不是在当前时间之后, 就截至当前, 这个 silence 已经过期
+// 就从 st 和 mc 中删除这个 silence
 func (s *Silences) GC() (int, error) {
 	start := time.Now()
 	defer func() { s.metrics.gcDuration.Observe(time.Since(start).Seconds()) }()
@@ -640,6 +658,11 @@ func QIDs(ids ...string) QueryParam {
 	}
 }
 
+// a := QIDs("adsa", "bsd")
+// q := &query{}
+// a(q)
+// fmt.Println(q.ids)
+
 // QMatches returns silences that match the given label set.
 func QMatches(set model.LabelSet) QueryParam {
 	return func(q *query) error {
@@ -654,6 +677,19 @@ func QMatches(set model.LabelSet) QueryParam {
 		return nil
 	}
 }
+
+// lset := LabelSet{}
+// b := QMatches(lset)
+// q := &query{}
+// b(q)
+// fmt.Println(q.filters)
+
+// sil := &pb.Silence{}
+// s := &Silence{}
+// t := time.Now()
+// for f := range q.filters {
+//    f(sil, s, t)
+// }
 
 // getState returns a silence's SilenceState at the given timestamp.
 func getState(sil *pb.Silence, ts time.Time) types.SilenceState {
@@ -699,6 +735,23 @@ func (s *Silences) QueryOne(params ...QueryParam) (*pb.Silence, error) {
 
 // Query for silences based on the given query parameters. It returns the
 // resulting silences and the state version the result is based on.
+// Query(QIDs(sid))
+// Query(QIDs(allIDs...), QState(types.SilenceStateActive, types.SilenceStatePending))
+// Query(QState(types.SilenceStateActive), QMatches(lset))
+// 对 Silences 的查询典型的如以上方式, 其实就是使用 ID, State, Labels 三种方式查询, 如果我来实现,
+// 直接就提供 GetByIds, GetByStates, GetByLabels, 然后让调用方自行逻辑组合, 比如先 GetByIds, 然后再用 GetByStates 过滤出需要的状态
+// 而这里面的实现结可以使用统一的 Query 方法, 任意组合三种方式进行逻辑与
+// QIDs, QState, QMatches 三种抽象都是返回 QueryParam, 而 QueryParam 是个函数对象 type QueryParam func(*query) error
+// QIDs 实现的 QueryParam 仅仅把 QIDs 接收的 ids 收集到 query.ids 中
+// QState 的 QueryParam 是把 QState 接收的 states 做成一个 filter 放到 query.filters 中
+// QMatches 的 QueryParam 也是把 QMatches 接收的 labelSets 做成一个 filter 放到 query.filters 中
+// query struct 仅包含两部分 ids, filters 部分, 真正使用 query struct 的是 query 函数, 去出 ids 中的所有 silences(如果没有取全部)
+// 然后遍历每个 silence, 再使用每个 silence 遍历每个 filter
+// QueryParam 是一个闭包, 使用自己闭包中的变量对传入 query 对象加工,
+// filter 是一个封装了 states 或者 labelSets 的闭包, 调用这些 filter 就会应用使用 state 和 label 对 silence 过滤的逻辑
+// 概括一下就是:
+// 		1. 每种查询方式使用闭包 QueryParam 把入参和处理入参的方式加工成统一的方式
+// 		2. query 方法可以使用统一的方式处理入参
 func (s *Silences) Query(params ...QueryParam) ([]*pb.Silence, int, error) {
 	s.metrics.queriesTotal.Inc()
 	defer prometheus.NewTimer(s.metrics.queryDuration).ObserveDuration()

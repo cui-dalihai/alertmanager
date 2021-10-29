@@ -101,6 +101,13 @@ func NewMarker(r prometheus.Registerer) Marker {
 	return m
 }
 
+// alert 的状态管理
+// 一个 alert 的状态, 更准确的说是一个 alert fp 的状态, 因为这里不会存储 alert 详细内容, 仅有一个 fingerprint
+// 如果它被另一个 alert 抑制, AlertStatus.InhibitedBy 会存储能够抑制这个 alert 的所有 alert fp 集合的子集
+// 如果它被静默, AlertStatus.SilencedBy 会存储所有静默它的静默规则
+// 实际上出现抑制的话 InhibitedBy 中只会又一个, 因为抑制的检查规则是遇到一个抑制生效就不再检查
+// 而静默检查是获取所有的 silence ids, 然后按状态分类, 所以是完整的有效静默集合
+// 这个结构体存储在 memMarker 中, 所有对 alert 的状态管理, 都是通过调用 memMarker 的方法进行:
 type memMarker struct {
 	m map[model.Fingerprint]*AlertStatus
 
@@ -165,6 +172,7 @@ func (m *memMarker) SetSilenced(alert model.Fingerprint, version int, activeIDs 
 	// If there are any silence or alert IDs associated with the
 	// fingerprint, it is suppressed. Otherwise, set it to
 	// AlertStateActive.
+	// 没有 inhibit ids 也没有 silence ids 就认为是 active
 	if len(activeIDs) == 0 && len(s.InhibitedBy) == 0 {
 		s.State = AlertStateActive
 		return
@@ -188,6 +196,7 @@ func (m *memMarker) SetInhibited(alert model.Fingerprint, ids ...string) {
 	// If there are any silence or alert IDs associated with the
 	// fingerprint, it is suppressed. Otherwise, set it to
 	// AlertStateActive.
+	// 没有 inhibit ids 也没有 silence ids 就认为是 active
 	if len(ids) == 0 && len(s.SilencedBy) == 0 {
 		s.State = AlertStateActive
 		return
@@ -346,17 +355,30 @@ func Alerts(alerts ...*Alert) model.Alerts {
 // are assumed to be equal.
 func (a *Alert) Merge(o *Alert) *Alert {
 	// Let o always be the younger alert.
+	// 这里 a.Merge(o) 中 a 和 o 是对称的, 但是增加了一个判断, 满足判断时直接交换两者的位置递归调用
+	// 即 使用一个判断在对称调时保证接受者和参数之间满足一定规则,
+	// 这里是保证入参是一个更新的 alert
 	if o.UpdatedAt.Before(a.UpdatedAt) {
 		return o.Merge(a)
 	}
 
+	// 使用新的作为 res
+	// 包括
 	res := *o
 
 	// Always pick the earliest starting time.
+	// 起时间使用更早的那个
 	if a.StartsAt.Before(o.StartsAt) {
 		res.StartsAt = a.StartsAt
 	}
 
+	// 止时间: 只有两种情况下需要使用旧的告警止时间,
+	// 如果新告警已经 resolved
+	//    如果旧告警也已经解决, 且旧的告警止时间更晚, 使用旧的
+	//    否则使用新的
+	// 如果新告警 not resolved
+	//    如果旧告警止时间更晚, 且旧的没超时, 使用旧的
+	//    否则使用新的
 	if o.Resolved() {
 		// The latest explicit resolved timestamp wins if both alerts are effectively resolved.
 		if a.Resolved() && a.EndsAt.After(o.EndsAt) {

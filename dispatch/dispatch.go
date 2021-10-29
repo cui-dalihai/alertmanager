@@ -173,6 +173,8 @@ func (d *Dispatcher) run(it provider.AlertIterator) {
 				continue
 			}
 
+			// 可能有多个 router 匹配这 alert
+			// 使用每个 router 来处理这个 alert
 			now := time.Now()
 			for _, r := range d.route.Match(alert.Labels) {
 				d.processAlert(alert, r)

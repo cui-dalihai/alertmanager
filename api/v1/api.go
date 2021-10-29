@@ -412,7 +412,12 @@ func (api *API) insertAlerts(w http.ResponseWriter, r *http.Request, alerts ...*
 	resolveTimeout := time.Duration(api.config.Global.ResolveTimeout)
 	api.mtx.RUnlock()
 
+	// 确定一个告警消息的起止时间
+	// 需要根据起止时间来定义告警的状态
+	// 如果止时间在当前之前就是 Resolved
 	for _, alert := range alerts {
+
+		// 新收到的告警标记接收时间, 这样, 如果有两个告警 label 一致, 可以判断出哪个是最新收到的
 		alert.UpdatedAt = now
 
 		// Ensure StartsAt is set.
@@ -441,6 +446,8 @@ func (api *API) insertAlerts(w http.ResponseWriter, r *http.Request, alerts ...*
 		validAlerts    = make([]*types.Alert, 0, len(alerts))
 		validationErrs = &types.MultiError{}
 	)
+
+	// 校验alert, 比如清理空值的 label, 起止时间, 至少一个label, label中的kv命名规则 等等
 	for _, a := range alerts {
 		removeEmptyLabels(a.Labels)
 
@@ -451,7 +458,7 @@ func (api *API) insertAlerts(w http.ResponseWriter, r *http.Request, alerts ...*
 		}
 		validAlerts = append(validAlerts, a)
 	}
-	// 写入 alertsProvider
+	// 写入 alertsProvider, 这一端相当于生产者
 	if err := api.alerts.Put(validAlerts...); err != nil {
 		api.respondError(w, apiError{
 			typ: errorInternal,

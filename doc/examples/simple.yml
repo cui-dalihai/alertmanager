@@ -49,27 +49,28 @@ route:
 
   - matchers:
     - service="database"
-    receiver: team-DB-pager
+    receiver: sys
     group_by: [alertname, cluster, database]
     routes:
     - matchers:
       - owner="team-X"
-      receiver: team-X-pager
+      receiver: sys
       continue: true
     - matchers:
       - owner="team-Y"
-      receiver: team-Y-pager
+      receiver: sys
 
 #inhibit_rules:
 #  # 使用 source 来 mute target, 避免极端情况, source 和 target 最好选择永远不可能在同一条 alert 中能同时满足的
 #  # 如果两侧都能匹配, 这不能被另一个两侧都匹配的 alert 抑制
 #- source_matchers: [ severity="critical" ]
 #  target_matchers: [ severity="warning" ]
-#  # 两者的所有labels的value相同, 或者两者都没有, 或者两者都为空值, 抑制生效
+#  # 两个 alert 一个满足 source 另一个满足 target, 那么如果满足 equal 中所有 labels 相同, 抑制生效
+#  # 两个 alert 都没有 equal 中的 labels, 或者都有但两者都为空值, 抑制生效
 #  equal: [ cluster ]
 
 inhibit_rules:
-- source_matchers: [ alertname="NodeDown", type="base"]
+- source_matchers: [ alertname="NodeDown"]
   target_matchers: [ severity="critical" ]
   equal: [ node ]
 

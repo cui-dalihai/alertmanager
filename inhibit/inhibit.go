@@ -58,7 +58,6 @@ func NewInhibitor(ap provider.Alerts, rs []*config.InhibitRule, mk types.Marker,
 }
 
 // Inhibitor和Dispatcher一样也会 Subscribe AlertProvider
-//
 func (ih *Inhibitor) run(ctx context.Context) {
 	it := ih.alerts.Subscribe()
 	defer it.Close()
@@ -75,6 +74,8 @@ func (ih *Inhibitor) run(ctx context.Context) {
 			// Update the inhibition rules' cache.
 			// 对于一个新的 alert, 如果发现满足 inhibit rule 的 source 侧, 那么
 			// 就缓存这个 alert, 因为它可能够抑制其他 alert
+			// 只有 Equal 成立抑制才会生效, 但是这里写 scahe 时并没有考虑 Equal
+			// 因为 Equal 为空时, source 是有可能生效的, 现在比较没有任何作用, 只有遇到实际需要判断的告警时才需要判断 Equal
 			for _, r := range ih.rules {
 				if r.SourceMatchers.Matches(a.Labels) {
 					if err := r.scache.Set(a); err != nil {
@@ -149,6 +150,7 @@ func (ih *Inhibitor) Mutes(lset model.LabelSet) bool {
 			return true
 		}
 	}
+	// 这个位置没传 ids, 那么这个 alert 被置为 "active"
 	ih.marker.SetInhibited(fp)
 
 	return false
@@ -159,6 +161,15 @@ func (ih *Inhibitor) Mutes(lset model.LabelSet) bool {
 // labels are equal between the two alerts. This may be used to inhibit alerts
 // from sending notifications if their meaning is logically a subset of a
 // higher-level alert.
+
+// 对于 a, b 两个 alert, 如果 a 满足 SourceMatchers, b 满足 TargetMatchers, 则 Equal 成立时, 用 a 抑制 b
+// 关于 Equal 成立的两个极端情况:
+//    1. a 和 b 都没有 Equal 中的 labels, 成立
+//    2. a 和 b 都有 Equal 中的 labels, 且都为空值, 成立
+// 关于抑制不生效的极端情况:
+//    1. a 同时满足 SourceMatchers, TargetMatchers, b 同时满足 SourceMatchers, TargetMatchers, 且 Equal 成立, 不生效
+// 抑制不生效的极端情况是为了避免告警的自抑制, 一般很少能够满足
+
 type InhibitRule struct {
 	// The set of Filters which define the group of source alerts (which inhibit
 	// the target alerts).
@@ -263,12 +274,13 @@ Outer:
 		}
 		// a 在加入 r.scache 的时候已经满足了 r.Source, 如果再通过 target 检查, 那么 scache 中的这个 a 同时满足 source 和 target
 		// 而 excludeTwoSidedMatch 如果为 true, 表示当前 dispatcher 处理的 alert 在 source 和 target 都满足
-		// 所以这个条件变成了: 如果 a 和被检查的 alert 同时满足 source 和 target, 而且被检查的标签还满足规则生效的条件
-		// 就忽略 a 对被检查 alert 的抑制,
-		// 这里防止了一个告警自己抑制自己情况
+		// 所以这个条件变成了:
+		// 如果被检查的 alert 标签还和 a 标签相同, 即抑制规则生效, 而且 a 和被检查的 alert 都同时满足 source 和 target,
+		// 就忽略 a 对被检查 alert 的抑制, 这里防止了一个告警自己抑制自己情况
 		if excludeTwoSidedMatch && r.TargetMatchers.Matches(a.Labels) {
 			continue Outer
 		}
+		// 出现一个抑制生效, 剩下的就不继续检查
 		return a.Fingerprint(), true
 	}
 	return model.Fingerprint(0), false
