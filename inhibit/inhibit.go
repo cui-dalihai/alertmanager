@@ -168,7 +168,7 @@ func (ih *Inhibitor) Mutes(lset model.LabelSet) bool {
 //    2. a 和 b 都有 Equal 中的 labels, 且都为空值, 成立
 // 关于抑制不生效的极端情况:
 //    1. a 同时满足 SourceMatchers, TargetMatchers, b 同时满足 SourceMatchers, TargetMatchers, 且 Equal 成立, 不生效
-// 抑制不生效的极端情况是为了避免告警的自抑制, 一般很少能够满足
+// 抑制不生效的极端情况是为了避免告警的自抑制
 
 type InhibitRule struct {
 	// The set of Filters which define the group of source alerts (which inhibit

@@ -675,12 +675,12 @@ func (p *Peer) Settle(ctx context.Context, interval time.Duration) {
 	totalPolls := 0
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctx.Done():             // 60s
 			elapsed := time.Since(start)
 			level.Info(p.logger).Log("msg", "gossip not settled but continuing anyway", "polls", totalPolls, "elapsed", elapsed)
 			close(p.readyc)
 			return
-		case <-time.After(interval):
+		case <-time.After(interval):   // 2s
 		}
 		elapsed := time.Since(start)
 		n := len(p.Peers())
